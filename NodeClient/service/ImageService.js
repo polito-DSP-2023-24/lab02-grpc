@@ -227,108 +227,75 @@ exports.getSingleImage = function(imageId, imageType, filmId, owner) {
   }
 
 
- 
   /**
- * Retrieve the file of a single image
+ * Delete an image from the film
  *
  **/
-exports.getSingleImageFile = function(imageId, imageType, filmId, owner) {
+  exports.deleteSingleImage = function(filmId, imageId, owner) {
     return new Promise((resolve, reject) => {
 
-        const sql1 = "SELECT f.owner as owner, r.reviewerId as reviewer FROM films f, reviews r WHERE f.id = ? AND f.private = 0 AND f.id = r.filmId";
+
+        const sql1 = "SELECT owner FROM films f WHERE f.id = ? AND f.private = 0";
         db.all(sql1, [filmId], (err, rows) => {
             if (err)
                 reject(err);
             else if (rows.length === 0)
                 reject(404);
+            else if(owner != rows[0].owner) {
+                reject(403);
+            }
             else {
-
-                var forbidden = true;
-                for (var i = 0; i < rows.length; i++) {
-                    if(owner == rows[i].owner || owner == rows[i].reviewer){
-                        forbidden = false;
-                    }
-                }
-
-                if(forbidden){
-                    reject(403);
-                }
-                else {
-                    //retrieve the name of the image from the database
-                const sql2 = 'SELECT name FROM images as i, filmImages as f WHERE i.id = f.imageId AND i.id = ? AND f.filmId = ?';
-                db.all(sql2, [imageId, filmId], async function(err, rows) {
-                    if (err)
+                //I retrieve the image name
+                const sql2 = 'SELECT name FROM images WHERE id = ?';
+                db.all(sql2, [imageId], (err, rows) => {
+                    if(err)
                         reject(err);
                     else if (rows.length === 0)
-                        resolve(404);
+                        reject(404);
                     else {
                         var nameNoExtension = rows[0].name;
-                        
-                        //add the extension
-                        var nameFile = nameNoExtension + '.' + imageType;
-                        var pathFile = __dirname + '/../uploads/' + nameFile;
-                        
-                        //check if there is a file saved with the requested media type
-                        try {
-                            if (fs.existsSync(pathFile)) {
-                                //send the file back
-                                resolve(nameFile);
-                            }  
-                            
+                        //DELETE
+                        //firstly, I delete the relationship with the film 
+                        const sql3 = 'DELETE FROM filmImages WHERE filmId = ? AND imageId = ?';
+                        db.run(sql3, [filmId, imageId], (err) => {
+                            if (err)
+                                reject(err);
+                            //secondly, I delete the image row from the database
                             else {
+                                const sql4 = 'DELETE FROM images WHERE id = ?';
+                                db.run(sql4, [imageId], (err) => {
+                                    if (err)
+                                        reject(err);
+                                    //thirdly, I delete the images from the server
+                                    else {
+                                        var pathFile1 = './uploads/' + nameNoExtension + '.png';
+                                        var pathFile2 = './uploads/' + nameNoExtension + '.jpg';
+                                        var pathFile3 = './uploads/' + nameNoExtension + '.gif';
+                                        if (fs.existsSync(pathFile1)) {
+                                            fs.unlinkSync(pathFile1);
+                                        }  
+                                        if (fs.existsSync(pathFile2)) {
+                                            fs.unlinkSync(pathFile2);
+                                        }  
+                                        if (fs.existsSync(pathFile3)) {
+                                            fs.unlinkSync(pathFile3);
+                                        }  
 
-                                //otherwise, I must convert the file
-                                //I search for a file, with a different extension, saved server-side
-                                var imageType2, imageType3;
-                                if(imageType == 'png'){
-                                    imageType2 = 'jpg';
-                                    imageType3 = 'gif'
-                                } else if(imageType == 'jpg'){
-                                    imageType2 = 'png';
-                                    imageType3 = 'gif'
-                                } else if(imageType == 'gif'){
-                                    imageType2 = 'jpg';
-                                    imageType3 = 'png'
-                                } 
-
-                                var pathFile2 = './uploads/' + nameNoExtension + '.' + imageType2;
-                                var pathFile3 = './uploads/' + nameNoExtension + '.' + imageType3;
-                                var pathOriginFile = null;
-                                var originType = null;
-                                var pathTargetFile = './uploads/' + nameFile;
-                                
-                                try {
-                                    if (fs.existsSync(pathFile2)) {
-                                        pathOriginFile = pathFile2;
-                                        originType = imageType2;
-                                    } else if(fs.existsSync(pathFile3)){
-                                        pathOriginFile = pathFile3;
-                                        originType = imageType3;
+                                        resolve();
                                     }
-                                } catch(err) {
-                                    reject(err);
-                                }
-
-                                if(pathOriginFile == null){
-                                    resolve(404);
-                                }
-
-                                await convertImage(pathOriginFile, pathTargetFile, originType, imageType);
-                                resolve(nameFile);
-
-                                }
-                        } catch(err) {
-                            reject(err);
+                                });
                         }
+                    });
                     }
                 });
-                }
-
+                
             }
         }); 
 
-    });
+        
+      });
   }
+
 
 function convertImage(pathOriginFile, pathTargetFile, originType, targetType) {
 
